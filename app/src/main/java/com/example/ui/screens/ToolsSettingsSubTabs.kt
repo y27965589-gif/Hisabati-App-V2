@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Search
@@ -65,6 +68,7 @@ import com.example.data.FinanceUtils.daysUntil
 import com.example.data.FinanceUtils.fmt
 import com.example.data.FinanceUtils.localDateISO
 import com.example.data.PdfExportHelper
+import com.example.data.ReminderNotifier
 import com.example.model.AccountBookEntry
 import com.example.model.SandooqiDB
 import com.example.ui.components.BadgeTag
@@ -356,6 +360,9 @@ fun ToolsSettingsTab(
     onToggleAppLock: () -> Unit,
     onLockNow: () -> Unit,
     onChangePin: (String) -> Unit,
+    onToggleNotifications: (Boolean) -> Unit,
+    onSetNotificationLeadDays: (Int) -> Unit,
+    onTestNotifications: () -> Unit,
     exportBackupJson: () -> String,
     onImportBackupJson: (String) -> Unit,
     onSelectiveReset: (salary: Boolean, homeTx: Boolean, sewing: Boolean, homeDebts: Boolean, sewingDebts: Boolean) -> Unit,
@@ -364,6 +371,20 @@ fun ToolsSettingsTab(
 ) {
     val ext = SandooqiThemeTokens.colors
     val context = LocalContext.current
+    var notifPermissionGranted by remember {
+        mutableStateOf(ReminderNotifier.hasNotificationPermission(context))
+    }
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        notifPermissionGranted = granted
+        if (granted) {
+            onToggleNotifications(true)
+            onTestNotifications()
+        } else {
+            onNotify("لم يتم منح إذن الإشعارات — يمكنك تفعيله من إعدادات الهاتف")
+        }
+    }
 
     var newMember by remember { mutableStateOf("") }
     var meterRate by remember(db.meterPrice) { mutableStateOf(db.meterPrice.roundToInt().toString()) }
@@ -474,7 +495,7 @@ fun ToolsSettingsTab(
             Text("إضافة صنف جديد لقائمة المنتجات", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
             Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("خضر", "فواكه", "لحوم بيضاء", "لحوم حمراء", "أسماك", "مواد غذائية").forEach { g ->
+                listOf("خضر", "فواكه", "لحوم بيضاء", "لحوم حمراء", "أسماك", "مواد غذائية", "التوابل").forEach { g ->
                     FilterChip(selected = catGroup == g, onClick = { catGroup = g }, label = { Text(g) })
                 }
             }
@@ -567,6 +588,100 @@ fun ToolsSettingsTab(
                     Spacer(Modifier.width(4.dp))
                     Text("استيراد JSON")
                 }
+            }
+        }
+
+        // Automatic Phone Notifications Card
+        val dueAlertsCount = remember(db) { ReminderNotifier.collectDueAlerts(db).size }
+        SandooqiCard {
+            SectionHeader(
+                title = "إشعارات الهاتف التلقائية",
+                icon = Icons.Filled.NotificationsActive,
+                iconTint = ext.emerald,
+                subtitle = "تنبيه تلقائي لمواعيد الطلبيات والديون والكراء والفواتير",
+                trailing = {
+                    BadgeTag(
+                        text = if (dueAlertsCount > 0) "$dueAlertsCount تنبيه" else "محدّث",
+                        containerColor = if (dueAlertsCount > 0) ext.amberContainer else ext.emeraldContainer,
+                        contentColor = if (dueAlertsCount > 0) ext.onAmberContainer else ext.onEmeraldContainer,
+                    )
+                },
+            )
+            Spacer(Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("تفعيل التذكير اليومي على الهاتف", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = if (notifPermissionGranted) "الإذن ممنوح — يتم الفحص تلقائياً" else "يتطلب السماح بإذن الإشعارات",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (notifPermissionGranted) ext.emerald else ext.amber,
+                    )
+                }
+                Switch(
+                    checked = db.notificationsEnabled,
+                    onCheckedChange = { wantEnable ->
+                        if (wantEnable && !notifPermissionGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            onToggleNotifications(wantEnable)
+                        }
+                    },
+                    modifier = Modifier.testTag("notifications_switch"),
+                )
+            }
+
+            if (!notifPermissionGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = { notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) },
+                    modifier = Modifier.fillMaxWidth().height(48.dp).testTag("grant_notif_permission_btn"),
+                    colors = ButtonDefaults.buttonColors(containerColor = ext.amber),
+                ) {
+                    Text("السماح بإرسال الإشعارات", fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Text("متى يصلك التذكير قبل الموعد؟", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listOf(
+                    0 to "نفس اليوم",
+                    1 to "قبل يوم",
+                    2 to "قبل يومين",
+                    3 to "قبل 3 أيام",
+                    7 to "قبل أسبوع",
+                ).forEach { (days, lbl) ->
+                    FilterChip(
+                        selected = db.notificationLeadDays == days,
+                        onClick = { onSetNotificationLeadDays(days) },
+                        label = { Text(lbl) },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = {
+                    if (!notifPermissionGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        onTestNotifications()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp).testTag("test_notifications_btn"),
+            ) {
+                Icon(Icons.Filled.NotificationsActive, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("فحص وإرسال تنبيه تجريبي الآن", fontWeight = FontWeight.Bold)
             }
         }
 

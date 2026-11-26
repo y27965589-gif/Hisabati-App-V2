@@ -61,7 +61,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 private val EXPENSE_CATEGORIES = listOf(
-    "مواد غذائية", "خضر وفواكه", "لحوم وأسماك", "نقل ومواصلات",
+    "مواد غذائية", "التوابل", "خضر وفواكه", "لحوم وأسماك", "نقل ومواصلات",
     "صحة ودواء", "لوازم المنزل", "تعليم", "ملابس", "ترفيه", "أخرى",
 )
 private val UNITS = listOf("حبة", "كغ", "غ", "لتر", "مل", "كيس", "علبة", "ربطة", "صندوق")
@@ -90,6 +90,7 @@ fun ExpensesScreen(
     onDeleteMarketItem: (Long) -> Unit,
     onClearDoneMarket: () -> Unit,
     onUpdateMarketBudget: (Double) -> Unit,
+    onAddCatalogProduct: (group: String, name: String, emoji: String) -> Unit,
     onPreviewPhoto: (String, String) -> Unit,
     onNotify: (String) -> Unit,
     onCompressUri: suspend (android.net.Uri) -> String?,
@@ -221,64 +222,43 @@ fun ExpensesScreen(
                 )
                 Spacer(Modifier.height(8.dp))
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    groups.forEach { g ->
-                        FilterChip(
-                            selected = activeGroup == g,
-                            onClick = { activeGroup = g },
-                            label = { Text(g) },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-
-                // Catalog Grid (2 columns compact chips)
-                val shownCatalog = filteredCatalog.take(36)
-                shownCatalog.chunked(2).forEach { pair ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        pair.forEach { item ->
-                            val picked = item.name in selectedItems
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (picked) ext.emeraldContainer else MaterialTheme.colorScheme.surfaceVariant,
-                                border = BorderStroke(1.dp, if (picked) ext.emerald else ext.cardBorder),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable {
-                                        selectedItems = if (picked) selectedItems - item.name else selectedItems + item.name
-                                    },
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Text(
-                                        text = "${item.emoji} ${item.name}",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (picked) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (picked) ext.onEmeraldContainer else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    if (picked) {
-                                        Icon(Icons.Filled.Check, contentDescription = "محدد", tint = ext.emerald, modifier = Modifier.size(16.dp))
-                                    }
-                                }
+                ExpenseCategoryPhotoStrip(
+                    groups = groups,
+                    activeGroup = activeGroup,
+                    onSelectGroup = { selectedGroup ->
+                        activeGroup = selectedGroup
+                        when (selectedGroup) {
+                            "التوابل" -> {
+                                expenseCategory = "التوابل"
+                                unit = "غ"
                             }
+                            "خضر", "فواكه" -> expenseCategory = "خضر وفواكه"
+                            "لحوم بيضاء", "لحوم حمراء", "أسماك" -> expenseCategory = "لحوم وأسماك"
+                            "مواد غذائية" -> expenseCategory = "مواد غذائية"
                         }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
-                    }
-                }
+                    },
+                )
+                Spacer(Modifier.height(10.dp))
+
+                ExpenseGroupPhotoBanner(
+                    activeGroup = activeGroup,
+                    itemCount = filteredCatalog.size,
+                )
+                Spacer(Modifier.height(10.dp))
+
+                val shownCatalog = filteredCatalog.take(36)
+                CatalogProductGrid(
+                    items = shownCatalog,
+                    selectedItems = selectedItems,
+                    onToggleItem = { item ->
+                        val picked = item.name in selectedItems
+                        selectedItems = if (picked) selectedItems - item.name else selectedItems + item.name
+                        if (!picked && item.group == "التوابل") {
+                            expenseCategory = "التوابل"
+                            unit = "غ"
+                        }
+                    },
+                )
 
                 if (selectedItems.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
@@ -486,6 +466,37 @@ fun ExpensesScreen(
                     )
                 }
             }
+
+            // Dedicated Spices Types Section
+            val spiceItems = remember(db.catalog) {
+                db.catalog.filter { it.group == "التوابل" || it.group == "توابل" }
+            }
+            SpicesTypesSection(
+                spiceItems = spiceItems,
+                selectedItems = selectedItems,
+                onToggleSpice = { spiceName ->
+                    val picked = spiceName in selectedItems
+                    selectedItems = if (picked) selectedItems - spiceName else selectedItems + spiceName
+                    if (!picked) {
+                        expenseCategory = "التوابل"
+                        unit = "غ"
+                    }
+                },
+                onAddCustomSpice = { newSpice ->
+                    onAddCatalogProduct("التوابل", newSpice, "")
+                    if (newSpice !in selectedItems) {
+                        selectedItems = selectedItems + newSpice
+                        expenseCategory = "التوابل"
+                        unit = "غ"
+                    }
+                },
+                onSendSpicesToMarket = { spices ->
+                    spices.forEach { s ->
+                        onAddMarketItem(s, 100.0, "غ", 0.0)
+                    }
+                    onNotify("تمت إضافة ${spices.size} من التوابل لقائمة السوق")
+                },
+            )
 
             // Family Expenses Card + Market List Card directly visible on Products tab
             FamilyMemberExpensesSection(

@@ -57,6 +57,16 @@ import com.example.model.SandooqiDB
 import com.example.ui.components.BudgetOrganizerCard
 import com.example.ui.components.SandooqiCard
 import com.example.ui.components.SectionHeader
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.example.data.ReminderNotifier
 import com.example.ui.components.StatusProgressBar
 import com.example.ui.theme.SandooqiThemeTokens
 import kotlin.math.max
@@ -76,6 +86,16 @@ fun HomeScreen(
     onRecordBudgetExpense: (BudgetAllocationItem) -> Unit,
 ) {
     val ext = SandooqiThemeTokens.colors
+    val context = LocalContext.current
+    var notifAllowed by remember { mutableStateOf(ReminderNotifier.hasNotificationPermission(context)) }
+    val notifLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        notifAllowed = granted
+        if (granted) {
+            ReminderNotifier.checkAndNotify(context, db, force = false)
+        }
+    }
     val privacy = db.privacyMode
     val ym = remember(db.lastActiveYM) { currentYM() }
     val report = remember(db, ym) { FinanceUtils.computeCashReportForMonth(db, ym) }
@@ -360,6 +380,19 @@ fun HomeScreen(
                             color = ext.onRoseContainer,
                             onClick = { onNavigate(AppPage.TOOLS) },
                         )
+                    }
+                    if (db.notificationsEnabled && !notifAllowed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        Spacer(Modifier.height(4.dp))
+                        Button(
+                            onClick = { notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) },
+                            colors = ButtonDefaults.buttonColors(containerColor = ext.rose),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("home_enable_notifications_btn"),
+                        ) {
+                            Icon(Icons.Filled.NotificationsActive, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("تفعيل إشعارات الهاتف التلقائية", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }

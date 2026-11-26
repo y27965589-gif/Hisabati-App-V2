@@ -408,6 +408,8 @@ data class SandooqiDB(
     val familyEntryOnlyMode: Boolean = false,
     val activeFamilyMember: String = "إسلام",
     val appLockEnabled: Boolean = false,
+    val notificationsEnabled: Boolean = true,
+    val notificationLeadDays: Int = 3,
 )
 
 data class AccountSummary(

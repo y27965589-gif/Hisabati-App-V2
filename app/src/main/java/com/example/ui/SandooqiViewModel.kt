@@ -17,6 +17,8 @@ import com.example.data.FinanceUtils.nextId
 import com.example.data.FinanceUtils.shiftYM
 import com.example.data.FinanceUtils.todayLabel
 import com.example.data.FinanceUtils.transactionAccount
+import com.example.data.ReminderNotifier
+import com.example.data.ReminderScheduler
 import com.example.data.SandooqiRepository
 import com.example.model.AppPage
 import com.example.model.BudgetAllocationItem
@@ -86,6 +88,12 @@ class SandooqiViewModel(
                     isLoading = false,
                     isAppLocked = initial.appLockEnabled && !initial.familyEntryOnlyMode,
                 )
+            }
+            repository.context?.let { ctx ->
+                ReminderScheduler.syncSchedule(ctx, initial.notificationsEnabled)
+                if (initial.notificationsEnabled) {
+                    ReminderNotifier.checkAndNotify(ctx, initial, force = false)
+                }
             }
         }
     }
@@ -239,6 +247,44 @@ class SandooqiViewModel(
         val hashed = FinanceUtils.hashPinSha256(clean)
         commitDB(toastText = "تم تحديث الرمز السري وتشفيره بنجاح") {
             it.copy(pin = hashed)
+        }
+    }
+
+    fun toggleNotifications(enabled: Boolean) {
+        commitDB(
+            toastText = if (enabled) "تم تفعيل إشعارات المواعيد والديون التلقائية" else "تم إيقاف إشعارات الهاتف التلقائية"
+        ) { it.copy(notificationsEnabled = enabled) }
+        repository.context?.let { ctx ->
+            ReminderScheduler.syncSchedule(ctx, enabled)
+            if (enabled) {
+                ReminderNotifier.checkAndNotify(ctx, _uiState.value.db.copy(notificationsEnabled = true), force = false)
+            }
+        }
+    }
+
+    fun setNotificationLeadDays(days: Int) {
+        val clamped = days.coerceIn(0, 7)
+        val label = when (clamped) {
+            0 -> "في نفس اليوم"
+            1 -> "قبل يوم واحد"
+            else -> "قبل $clamped أيام"
+        }
+        commitDB(toastText = "تم ضبط التنبيه المسبق: $label") {
+            it.copy(notificationLeadDays = clamped)
+        }
+    }
+
+    fun testNotificationsNow() {
+        val ctx = repository.context ?: return
+        if (!ReminderNotifier.hasNotificationPermission(ctx)) {
+            showToast("يرجى منح إذن الإشعارات للتطبيق أولاً")
+            return
+        }
+        val count = ReminderNotifier.checkAndNotify(ctx, _uiState.value.db, force = true)
+        if (count > 0) {
+            showToast("تم إرسال الإشعار إلى شريط التنبيهات ($count)")
+        } else {
+            showToast("تعذر إرسال الإشعار — تحقق من إعدادات النظام")
         }
     }
 

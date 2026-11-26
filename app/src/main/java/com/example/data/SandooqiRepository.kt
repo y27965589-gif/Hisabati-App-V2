@@ -19,6 +19,7 @@ class SandooqiRepository(
     private val dao: SandooqiDao,
     private val appContext: Context? = null,
 ) {
+    val context: Context? get() = appContext
     private val moshi: Moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())
         .build()

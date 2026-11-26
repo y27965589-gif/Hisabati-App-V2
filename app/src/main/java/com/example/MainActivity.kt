@@ -104,10 +104,21 @@ import com.example.ui.screens.TreasuryScreen
 import com.example.ui.theme.SandooqiTheme
 import com.example.ui.theme.SandooqiThemeTokens
 
+import android.content.Intent
+import com.example.data.ReminderNotifier
+
 class MainActivity : ComponentActivity() {
+    private val pendingTargetPage = mutableStateOf<AppPage?>(null)
+
+    private fun extractTargetPage(intent: Intent?): AppPage? {
+        val name = intent?.getStringExtra(ReminderNotifier.EXTRA_TARGET_PAGE) ?: return null
+        return runCatching { AppPage.valueOf(name) }.getOrNull()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        pendingTargetPage.value = extractTargetPage(intent)
 
         val db = SandooqiDatabase.getInstance(applicationContext)
         val repository = SandooqiRepository(db.sandooqiDao(), applicationContext)
@@ -116,8 +127,21 @@ class MainActivity : ComponentActivity() {
             val viewModel: SandooqiViewModel = viewModel(
                 factory = SandooqiViewModel.Factory(repository)
             )
+            val targetPage = pendingTargetPage.value
+            LaunchedEffect(targetPage) {
+                if (targetPage != null) {
+                    viewModel.navigate(targetPage)
+                    pendingTargetPage.value = null
+                }
+            }
             SandooqiRootApp(viewModel = viewModel)
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingTargetPage.value = extractTargetPage(intent)
     }
 }
 
@@ -384,6 +408,7 @@ private fun SandooqiRootApp(viewModel: SandooqiViewModel) {
                                             onDeleteMarketItem = viewModel::deleteMarketItem,
                                             onClearDoneMarket = viewModel::clearDoneMarket,
                                             onUpdateMarketBudget = viewModel::updateMarketBudget,
+                                            onAddCatalogProduct = viewModel::addCatalogProduct,
                                             onPreviewPhoto = viewModel::previewPhoto,
                                             onNotify = { viewModel.showToast(it) },
                                             onCompressUri = viewModel::compressImage,
@@ -481,6 +506,9 @@ private fun SandooqiRootApp(viewModel: SandooqiViewModel) {
                                             onToggleAppLock = viewModel::toggleAppLock,
                                             onLockNow = viewModel::lockNow,
                                             onChangePin = viewModel::changePin,
+                                            onToggleNotifications = viewModel::toggleNotifications,
+                                            onSetNotificationLeadDays = viewModel::setNotificationLeadDays,
+                                            onTestNotifications = viewModel::testNotificationsNow,
                                             exportBackupJson = { viewModel.repository.exportJson(db) },
                                             onImportBackupJson = viewModel::importBackupJson,
                                             onSelectiveReset = viewModel::selectiveReset,
